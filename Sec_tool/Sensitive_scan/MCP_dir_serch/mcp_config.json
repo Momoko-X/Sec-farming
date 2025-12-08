@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "directory-scanner": {
+      "command": "python3",
+      "args": [
+        "/Users/a58/Desktop/Script_tools/Sec-farming/Sec_tool/mcp_server.py"
+      ],
+      "env": {}
+    }
+  }
+}
+

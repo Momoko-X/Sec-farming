@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据出境合规判定助手</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --success-color: #27ae60;
+            --warning-color: #e67e22;
+            --danger-color: #c0392b;
+            --bg-color: #f4f6f9;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            width: 100%;
+            max-width: 600px;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+
+        .question-box {
+            margin-bottom: 30px;
+            min-height: 100px;
+        }
+
+        .question-text {
+            font-size: 20px;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+
+        .btn-group {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-yes {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .btn-no {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            border: 1px solid #bdc3c7;
+        }
+
+        .btn-reset {
+            margin-top: 20px;
+            background-color: transparent;
+            color: #7f8c8d;
+            text-decoration: underline;
+            font-size: 14px;
+        }
+
+        /* 结果样式 */
+        .result-box {
+            display: none;
+            animation: fadeIn 0.5s;
+        }
+
+        .result-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .result-desc {
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        /* 结果颜色修饰 */
+        .res-green { color: var(--success-color); border: 2px solid var(--success-color); background: #eafaf1; padding: 20px; border-radius: 8px;}
+        .res-orange { color: var(--warning-color); border: 2px solid var(--warning-color); background: #fdf2e9; padding: 20px; border-radius: 8px;}
+        .res-red { color: var(--danger-color); border: 2px solid var(--danger-color); background: #fdedec; padding: 20px; border-radius: 8px;}
+
+        /* 历史路径面包屑 */
+        .history {
+            margin-bottom: 20px;
+            font-size: 12px;
+            color: #95a5a6;
+            text-align: left;
+            line-height: 1.5;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📋 数据出境合规判定</h1>
+    
+    <!-- 面包屑区域，显示判断路径 -->
+    <div id="history" class="history"></div>
+
+    <!-- 提问区域 -->
+    <div id="quiz-section" class="question-box">
+        <div id="question-text" class="question-text">加载中...</div>
+        <div class="btn-group">
+            <button class="btn-yes" onclick="handleAnswer(true)">是 (Yes)</button>
+            <button class="btn-no" onclick="handleAnswer(false)">否 (No)</button>
+        </div>
+    </div>
+
+    <!-- 结果区域 -->
+    <div id="result-section" class="result-box">
+        <div id="result-content"></div>
+        <button class="btn-reset" onclick="startQuiz()">重新判定</button>
+    </div>
+</div>
+
+<script>
+    // 定义逻辑节点
+    // 每个节点包含：text (问题), yes (是跳转到的节点ID), no (否跳转到的节点ID), type (如果为result则结束)
+    
+    // 逻辑基于提供的图片流程
+    const logicTree = {
+        step1: {
+            text: "是否属于数据出境行为？",
+            yes: "step2",
+            no: "res_not_scope"
+        },
+        step2: {
+            text: "是否涉及重要数据？",
+            yes: "step2_ftz", // 进入重要数据分支
+            no: "step3"      // 进入个人数据分支
+        },
+        // --- 重要数据分支 ---
+        step2_ftz: {
+            text: "是否适用自贸区负面清单豁免？",
+            yes: "res_exempt",
+            no: "res_assessment" // 重要数据不豁免即评估
+        },
+        // --- 个人数据分支 ---
+        step3: {
+            text: "是否涉及个人数据？",
+            yes: "step4",
+            no: "res_not_scope" // 既不是重要数据也不是个人数据
+        },
+        step4: {
+            text: "是否适用自贸区负面清单豁免？",
+            yes: "res_exempt",
+            no: "step5"
+        },
+        step5: {
+            text: "是否适用个人信息场景豁免？<br><span style='font-size:14px; color:#666'>(如：为订立合同、跨境人力资源管理、紧急避险等)</span>",
+            yes: "res_exempt",
+            no: "step6"
+        },
+        step6: {
+            text: "贵单位是否属于关键信息基础设施运营者 (CIIO)？",
+            yes: "res_assessment", // CIIO 必须评估
+            no: "step7"
+        },
+        step7: {
+            text: "是否涉及个人敏感数据？",
+            yes: "step7_sensitive_count",
+            no: "step7_normal_count"
+        },
+        // --- 敏感数据数量分支 ---
+        step7_sensitive_count: {
+            text: "涉及个人敏感数据是否超过 1 万人？",
+            yes: "res_assessment",
+            no: "res_standard_contract" // 敏感<1万 -> 标准合同
+        },
+        // --- 非敏感数据数量分支 ---
+        step7_normal_count: {
+            text: "涉及个人信息是否超过 10 万人？",
+            yes: "step7_huge_count",
+            no: "res_exempt" // 2024新规：非敏感<10万豁免
+        },
+        step7_huge_count: {
+            text: "涉及个人信息是否超过 100 万人？",
+            yes: "res_assessment", // >100万
+            no: "res_standard_contract" // 10万-100万之间
+        },
+
+        // --- 结果定义 ---
+        res_not_scope: { type: "result", title: "不在管理范畴", desc: "该行为不需要进行数据出境申报。", style: "res-green" },
+        res_exempt: { type: "result", title: "豁免申报", desc: "符合豁免条件，无需申报数据安全评估或备案标准合同。", style: "res-green" },
+        res_assessment: { type: "result", title: "数据安全评估", desc: "属于高风险出境，必须向国家网信部门申报数据出境安全评估。", style: "res-red" },
+        res_standard_contract: { type: "result", title: "个人信息标准合同", desc: "需要与境外接收方订立标准合同，并向网信部门备案（或申请个人信息保护认证）。", style: "res-orange" }
+    };
+
+    let currentStep = "step1";
+    let historyLog = [];
+
+    function startQuiz() {
+        currentStep = "step1";
+        historyLog = [];
+        document.getElementById("quiz-section").style.display = "block";
+        document.getElementById("result-section").style.display = "none";
+        renderStep();
+    }
+
+    function renderStep() {
+        const stepData = logicTree[currentStep];
+        
+        // 更新面包屑
+        updateHistoryDisplay();
+
+        // 检查是否是结果页
+        if (stepData.type === "result") {
+            showResult(stepData);
+            return;
+        }
+
+        // 显示问题
+        document.getElementById("question-text").innerHTML = stepData.text;
+    }
+
+    function handleAnswer(answer) {
+        const stepData = logicTree[currentStep];
+        
+        // 记录历史用于面包屑
+        const answerText = answer ? "是" : "否";
+        historyLog.push(`${stepData.text.replace(/<[^>]+>/g, '')} [${answerText}]`);
+
+        // 逻辑跳转
+        if (answer) {
+            currentStep = stepData.yes;
+        } else {
+            currentStep = stepData.no;
+        }
+        renderStep();
+    }
+
+    function showResult(resultData) {
+        document.getElementById("quiz-section").style.display = "none";
+        const resDiv = document.getElementById("result-section");
+        const contentDiv = document.getElementById("result-content");
+        
+        resDiv.style.display = "block";
+        contentDiv.innerHTML = `
+            <div class="${resultData.style}">
+                <div class="result-title">${resultData.title}</div>
+                <div class="result-desc">${resultData.desc}</div>
+            </div>
+        `;
+    }
+
+    function updateHistoryDisplay() {
+        const historyDiv = document.getElementById("history");
+        if (historyLog.length === 0) {
+            historyDiv.innerText = "开始";
+        } else {
+            historyDiv.innerHTML = historyLog.map(item => `<div>↓ ${item}</div>`).join("");
+        }
+    }
+
+    // 初始化
+    startQuiz();
+
+</script>
+
+</body>
+</html>
